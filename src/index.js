@@ -239,6 +239,12 @@ export default function undoable (reducer, rawConfig = {}) {
         return res
 
       default:
+        // Create history if it is not defined yet.. 
+        // fixes https://github.com/omnidan/redux-undo/issues/49 for now
+        if(!state.present){
+          config.history = createHistory(state);  
+        }
+
         res = reducer(state && state.present, action)
 
         if (config.initTypes.some((actionType) => actionType === action.type)) {
