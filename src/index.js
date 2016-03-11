@@ -203,7 +203,6 @@ export default function undoable (reducer, rawConfig = {}) {
   __DEBUG__ = rawConfig.debug
 
   const config = {
-    initialState: rawConfig.initialState,
     initTypes: parseActions(rawConfig.initTypes, ['@@redux-undo/INIT']),
     limit: rawConfig.limit,
     filter: rawConfig.filter || (() => true),
@@ -214,7 +213,7 @@ export default function undoable (reducer, rawConfig = {}) {
     jumpType: rawConfig.jumpType || ActionTypes.JUMP,
     clearHistoryType: rawConfig.clearHistoryType || ActionTypes.CLEAR_HISTORY
   }
-  config.history = rawConfig.initialHistory || createHistory(config.initialState || reducer(undefined, {}))
+  config.history = createHistory(reducer(undefined, {}))
 
   return (state = config.history, action = {}) => {
     debugStart(action, state)
