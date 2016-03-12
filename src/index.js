@@ -193,7 +193,7 @@ export default function undoable (reducer, rawConfig = {}) {
   __DEBUG__ = rawConfig.debug
 
   const config = {
-    initTypes: parseActions(rawConfig.initTypes, ['@@redux-undo/INIT']),
+    initTypes: parseActions(rawConfig.initTypes, ['@@redux-undo/INIT', '@@redux/INIT']),
     limit: rawConfig.limit,
     filter: rawConfig.filter || (() => true),
     undoType: rawConfig.undoType || ActionTypes.UNDO,
@@ -292,8 +292,8 @@ export default function undoable (reducer, rawConfig = {}) {
         }
 
         // Don't add entry to history if it was just created
-        if ((justCreatedHistory && history.present === res) || action.type === '@@redux-undo/INIT') {
-          debug('not inserted, history was just created or action === redux-undo/INIT')
+        if (justCreatedHistory && history.present === res) {
+          debug('not inserted, history was just created')
         } else {
           history = insert(history, res, config.limit)
           debug('inserted new state into history')
