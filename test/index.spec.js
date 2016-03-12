@@ -2,10 +2,14 @@ const { expect } = require('chai')
 const { default: undoable, ActionCreators, excludeAction, distinctState, isHistory } = require('../src/index')
 const Redux = require('redux')
 
+const testConfigZero = {
+  initTypes: [],
+  filter: excludeAction(['@@redux-undo/INIT', '@@redux/INIT'])
+}
+
 const excludedActionsOne = ['DECREMENT']
 const testConfigOne = {
   limit: 100,
-  initTypes: 'RE-INITIALIZE',
   FOR_TEST_ONLY_excludedActions: excludedActionsOne,
   filter: excludeAction(excludedActionsOne)
 }
@@ -17,7 +21,8 @@ const initialStateOne = {
 
 const testConfigTwo = {
   limit: 1024,
-  initTypes: 'RE-INITIALIZE'
+  initTypes: 'RE-INITIALIZE',
+  filter: excludeAction(['@@redux-undo/INIT', '@@redux/INIT'])
 }
 const initialStateTwo = {
   past: [123],
@@ -37,40 +42,52 @@ const initialStateThree = {
   future: []
 }
 
-runTestWithConfig({}, undefined, 'Default config')
-runTestWithConfig({ initTypes: [] }, undefined, 'No Init types')
-runTestWithConfig({ limit: 200 }, 100, 'Initial State equals 100')
-runTestWithConfig({}, {'present': 0}, 'Initial State that looks like a history')
-runTestWithConfig(testConfigOne, initialStateOne, 'Initial History and Filter (Exclude Actions)')
-runTestWithConfig(testConfigTwo, initialStateTwo, 'Initial State and Init types')
-runTestWithConfig(testConfigThree, initialStateThree, 'Erroneous configuration')
+// These 2 test configs will fail because they don't set the initialState
+// on the store and the tests are swapping reducers with a different initialState..
+// It fails because when resetting the config.history we don't know if the history
+// was set on the store or came from the initialState of the reducer..
+runTestWithConfig({}, undefined, 'Default config -')
+runTestWithConfig(testConfigZero, undefined, 'No Init types -')
+
+runTestWithConfig({ limit: 200 }, 100, 'Initial State equals 100 -')
+runTestWithConfig({}, {'present': 0}, 'Initial State that looks like a history -')
+runTestWithConfig(testConfigOne, initialStateOne, 'Initial History and Filter (Exclude Actions) -')
+runTestWithConfig(testConfigTwo, initialStateTwo, 'Initial State and Init types -')
+runTestWithConfig(testConfigThree, initialStateThree, 'Erroneous configuration -')
 
 // Test undoable reducers as a function of a configuration object
 // `label` describes the nature of the configuration object used to run a test
 function runTestWithConfig (testConfig, initialStoreState, label) {
   describe('Undoable: ' + label, () => {
+    const countReducer = (state = 0, action = {}) => {
+      switch (action.type) {
+        case 'INCREMENT':
+          return state + 1
+        case 'DECREMENT':
+          return state - 1
+        default:
+          return state
+      }
+    }
+
+    const tenfoldReducer = (state = 10, action = {}) => {
+      switch (action.type) {
+        case 'INCREMENT':
+          return state + 10
+        case 'DECREMENT':
+          return state - 10
+        default:
+          return state
+      }
+    }
+
     let mockUndoableReducer
     let mockInitialState
     let incrementedState
-    let countReducer
     let store
 
     before('setup mock reducers and states', () => {
-      let countInitialState = 0
-      countReducer = (state = countInitialState, action = {}) => {
-        switch (action.type) {
-          case 'INCREMENT':
-            return state + 1
-          case 'DECREMENT':
-            return state - 1
-          case 'DUMMY':
-            return state
-          default:
-            return state
-        }
-      }
-
-      // testConfig.debug = true;
+      // testConfig.debug = true
       mockUndoableReducer = undoable(countReducer, testConfig)
       store = Redux.createStore(mockUndoableReducer, initialStoreState)
 
@@ -86,7 +103,7 @@ function runTestWithConfig (testConfig, initialStoreState, label) {
       expect(store.getState()).to.deep.equal(mockInitialState, 'mockInitialState should be the same as our store\'s state')
     })
 
-    describe('Check initial state', () => {
+    describe('Initial state', () => {
       it('should be initialized with the value of the default `initialState` of the reducer if there is no `initialState` set on the store', () => {
         if (initialStoreState === undefined) {
           expect(mockInitialState.present).to.equal(countReducer())
@@ -110,26 +127,7 @@ function runTestWithConfig (testConfig, initialStoreState, label) {
       })
     })
 
-    describe('Check non redux-undo actions', () => {
-      it('should not record unwanted actions', () => {
-        if (testConfig.FOR_TEST_ONLY_excludedActions && testConfig.FOR_TEST_ONLY_excludedActions[0]) {
-          let decrementedState = mockUndoableReducer(mockInitialState, { type: testConfig.FOR_TEST_ONLY_excludedActions[0] })
-          expect(decrementedState.past).to.deep.equal(mockInitialState.past)
-          expect(decrementedState.future).to.deep.equal(mockInitialState.future)
-        }
-      })
-
-      it('should record non state changing actions when filter is not set', () => {
-        let dummyState = mockUndoableReducer(incrementedState, { type: 'DUMMY' })
-        if (testConfig.FOR_TEST_ONLY_distinctState) {
-          expect(dummyState).to.deep.equal(incrementedState)
-        } else {
-          expect(dummyState.present).to.deep.equal(incrementedState.present)
-          expect(dummyState.past).to.deep.equal([...incrementedState.past, incrementedState.present])
-          expect(dummyState.future).to.deep.equal(incrementedState.future)
-        }
-      })
-
+    describe('Actions', () => {
       it('should reset upon init actions', () => {
         let reInitializedState
         if (testConfig.initTypes) {
@@ -148,9 +146,92 @@ function runTestWithConfig (testConfig, initialStoreState, label) {
         }
       })
 
-      it('should increment when action is dispatched to store', () => {
+      it('should reset state when reducers are replaced', () => {
+        let initialTenfoldReducerState = tenfoldReducer(undefined, {})
+        store.replaceReducer(undoable(tenfoldReducer, testConfig))
+
+        if (initialStoreState === undefined) {
+          expect(store.getState().present).to.equal(initialTenfoldReducerState)
+        } else if (isHistory(initialStoreState)) {
+          expect(store.getState().present).to.equal(initialStoreState.present)
+        } else {
+          expect(store.getState().present).to.equal(initialStoreState)
+        }
+
+        // swap back for other tests
+        store.replaceReducer(mockUndoableReducer)
+
+        if (initialStoreState === undefined) {
+          expect(store.getState()).to.deep.equal(mockInitialState)
+        } else if (isHistory(initialStoreState)) {
+          expect(store.getState()).to.deep.equal(initialStoreState)
+        } else {
+          expect(store.getState()).to.deep.equal({
+            past: [],
+            present: initialStoreState,
+            future: []
+          })
+        }
+      })
+
+      it('should use reapply actions with replaced reducer when replaced', () => {
+        // expected tenfold incremented result
+        let expectedResult = tenfoldReducer(store.getState().present, {type: 'INCREMENT'})
+
+        // first increment
         store.dispatch({type: 'INCREMENT'})
+
+        // check
         expect(store.getState()).to.deep.equal(incrementedState)
+
+        // Replace
+        store.replaceReducer(undoable(tenfoldReducer, testConfig))
+
+        // State should be incremented right? Or am I missing something..
+        // this is failing right now because the `INCREMENT` action is not reapplied.
+        // Or is this something redux-devtools does so it makes sense this is not happening here?
+        expect(store.getState().present).to.deep.equal(expectedResult)
+
+        // swap back for other tests
+        store.replaceReducer(mockUndoableReducer)
+      })
+
+      it('should use replaced reducer for new actions', () => {
+        // Replace
+        store.replaceReducer(undoable(tenfoldReducer, testConfig))
+
+        // Increment and check result
+        let expectedResult = tenfoldReducer(store.getState().present, {type: 'INCREMENT'})
+        store.dispatch({type: 'INCREMENT'})
+        expect(store.getState().present).to.equal(expectedResult)
+
+        // swap back for other tests
+        store.replaceReducer(mockUndoableReducer)
+      })
+
+      it('should increment when action is dispatched to store', () => {
+        let expectedResult = store.getState().present + 1
+        store.dispatch({type: 'INCREMENT'})
+        expect(store.getState().present).to.equal(expectedResult)
+      })
+
+      it('should not record unwanted actions', () => {
+        if (testConfig.FOR_TEST_ONLY_excludedActions && testConfig.FOR_TEST_ONLY_excludedActions[0]) {
+          let decrementedState = mockUndoableReducer(mockInitialState, { type: testConfig.FOR_TEST_ONLY_excludedActions[0] })
+          expect(decrementedState.past).to.deep.equal(mockInitialState.past)
+          expect(decrementedState.future).to.deep.equal(mockInitialState.future)
+        }
+      })
+
+      it('should record non state changing actions when filter is not set', () => {
+        let dummyState = mockUndoableReducer(incrementedState, { type: 'DUMMY' })
+        if (testConfig.FOR_TEST_ONLY_distinctState) {
+          expect(dummyState).to.deep.equal(incrementedState)
+        } else {
+          expect(dummyState.present).to.deep.equal(incrementedState.present)
+          expect(dummyState.past).to.deep.equal([...incrementedState.past, incrementedState.present])
+          expect(dummyState.future).to.deep.equal(incrementedState.future)
+        }
       })
     })
 
